@@ -229,7 +229,9 @@ namespace Meleze.Web.Razor
                     {
                         iscriptend += "</script>".Length;
                     }
-                    var jsContent = content.Substring(iscriptstart, iscriptend - iscriptstart);
+                    var iend = iscriptend - iscriptstart;
+                    if (iend > content.Length) iend = content.Length;
+                    var jsContent = content.Substring(iscriptstart, iend);
                     previousIsWhiteSpace = MinifySafelyHTMLBlock(jsContent, builder, previousIsWhiteSpace);
                     istart = iscriptend;
                     insideScript = false;
@@ -320,8 +322,10 @@ namespace Meleze.Web.Razor
             var iscriptstart = insideScript ? 0 : content.IndexOf("<script");
             while (iscriptstart >= 0)
             {
-                var iscriptautoend = content.IndexOf("/>", iscriptstart + 7);
-                var iscriptend = content.IndexOf("</script>", iscriptstart + 7);
+                var istart = iscriptstart + 7;
+                if (istart > content.Length) istart = content.Length;
+                var iscriptautoend = content.IndexOf("/>", istart);
+                var iscriptend = content.IndexOf("</script>", istart);
                 if ((insideScript && iscriptstart == 0) || (iscriptend < 0) || ((iscriptautoend > 0) && (iscriptautoend < iscriptend)))
                 {
                     content = MinifyJavascriptComments(content, builder, (insideScript && iscriptstart == 0), ref iscriptstart);
@@ -381,8 +385,10 @@ namespace Meleze.Web.Razor
         }
         private static string MinifyJavascriptComments(string content, StringBuilder builder, bool insideScript, ref int iscriptstart)
         {
-            var iscriptautoend = content.IndexOf("/>", iscriptstart + 7);
-            var iscriptend = content.IndexOf("</script>", iscriptstart + 7);
+            var istart = iscriptstart + 7;
+            if (istart > content.Length) istart = content.Length;
+            var iscriptautoend = content.IndexOf("/>", istart);
+            var iscriptend = content.IndexOf("</script>", istart);
             if ((iscriptend < 0) || ((iscriptautoend > 0) && (iscriptautoend < iscriptend)))
             {
                 iscriptend = content.Length;
