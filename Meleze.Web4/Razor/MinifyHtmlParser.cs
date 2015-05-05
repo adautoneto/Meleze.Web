@@ -34,35 +34,7 @@ namespace Meleze.Web.Razor
             _other.ParseDocument();
             var block = Context.CurrentBlock;
 
-            FlattenHTMLAttributes(block);
-
             MinifyMarkup(block);
-        }
-
-        /// <summary>
-        /// The HTML attributes are parsed in special blocks to generate the attributes only when they
-        /// have a value.
-        /// => To enhance the minification, we put all the hard coded attributes back to the stream of HTML.
-        /// </summary>
-        /// <param name="block"></param>
-        private static void FlattenHTMLAttributes(BlockBuilder block)
-        {
-            for (int i = 0; i < block.Children.Count; )
-            {
-                var node = block.Children[i];
-                var subblock = node as Block;
-                if ((subblock == null) || (!subblock.Children.All(c => c is Span && ((Span)c).Kind == SpanKind.Markup && ((Span)c).Content.StartsWith("~/"))))
-                {
-                    i++;
-                    continue;
-                }
-
-                block.Children.RemoveAt(i);
-                foreach (var child in subblock.Children)
-                {
-                    block.Children.Insert(i++, child);
-                }
-            }
         }
 
         private void MinifyMarkup(BlockBuilder block)
@@ -84,7 +56,7 @@ namespace Meleze.Web.Razor
                     previousTokenEndsWithBlockElement = false;
 
                     var section = node as Block;
-                    if ((section != null) && (section.Type == BlockType.Section))
+                    if ((section != null) && (section.Type == BlockType.Section || section.Type == BlockType.Statement || section.Type == BlockType.Expression))
                     {
                         // Sections are special as they force us to recurse the minification
                         block.Children[i] = MinifySectionBlock(section);
@@ -94,23 +66,7 @@ namespace Meleze.Web.Razor
                     continue;
                 }
 
-                // There may be several HTML tokens just one after the other.
-                // => we concatenate everything in a single token to minify everyting in a single scan
-                // (we is better for Javascript minification).
-                var sb = new StringBuilder();
-                sb.Append(span.Content);
-                if (i < block.Children.Count - 1)
-                {
-                    var markup = block.Children[i + 1] as Span;
-                    while ((markup != null) && (markup.Kind == SpanKind.Markup) && ((markup.Next == null) || ((markup.Next != null) && ((markup.Next.Kind == SpanKind.Markup) || ((markup.Next.Kind != SpanKind.Markup) && !markup.Content.EndsWith("\""))))))
-                    {
-                        block.Children.RemoveAt(i + 1);
-                        sb.Append(markup.Content);
-                        markup = i + 1 < block.Children.Count ? block.Children[i + 1] as Span : null;
-                    }
-                }
-
-                var content = sb.ToString();
+                var content = span.Content;
                 if (string.IsNullOrEmpty(content))
                 {
                     // Nothing to minify
@@ -140,6 +96,15 @@ namespace Meleze.Web.Razor
             for (int i = 0; i < builder.Children.Count; i++)
             {
                 var node = builder.Children[i];
+
+                Span span = node as Span;
+                if (!node.IsBlock && span != null && span.Kind == SpanKind.Code)
+                {
+                    node = MinifyCodeSpan(span);
+                    builder.Children[i] = node;
+                    continue;
+                }
+
                 var markup = node as Block;
                 if ((markup == null) || (markup.Type != BlockType.Markup))
                 {
@@ -147,7 +112,6 @@ namespace Meleze.Web.Razor
                 }
 
                 var markupbuilder = new BlockBuilder(markup);
-                FlattenHTMLAttributes(markupbuilder);
                 MinifyMarkup(markupbuilder);
                 markup = new Block(markupbuilder);
                 builder.Children[i] = markup;
@@ -155,6 +119,25 @@ namespace Meleze.Web.Razor
 
             block = new Block(builder);
             return block;
+        }
+
+        private Span MinifyCodeSpan(Span span)
+        {
+            var clearableSymbols = span.Symbols
+                .OfType<CSharpSymbol>()
+                .Where(symbol =>
+                {
+                    var isEmptyWhiteSpace = symbol.Type == CSharpSymbolType.WhiteSpace && symbol.Content.Length > 1;
+                    return symbol.Type == CSharpSymbolType.NewLine || isEmptyWhiteSpace;
+                });
+
+            var filteredSymbols = span.Symbols.Except<ISymbol>(clearableSymbols);
+            var builder = new SpanBuilder(span);
+            builder.ClearSymbols();
+            foreach (var symbol in filteredSymbols)            
+                builder.Accept(symbol);
+
+            return new Span(builder);
         }
 
         private sealed class MarkupSymbol : ISymbol
