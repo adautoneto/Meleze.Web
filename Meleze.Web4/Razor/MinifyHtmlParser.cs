@@ -66,6 +66,8 @@ namespace Meleze.Web.Razor
                     continue;
                 }
 
+                if (span.Kind != SpanKind.Markup) continue;
+
                 var content = span.Content;
                 if (string.IsNullOrEmpty(content))
                 {
