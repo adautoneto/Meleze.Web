@@ -1,5 +1,6 @@
-﻿using System.Linq;
-using System.Text;
+﻿using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 using System.Web.Razor.Generator;
 using System.Web.Razor.Parser;
 using System.Web.Razor.Parser.SyntaxTree;
@@ -100,7 +101,7 @@ namespace Meleze.Web.Razor
                 var node = builder.Children[i];
 
                 Span span = node as Span;
-                if (!node.IsBlock && span != null && span.Kind == SpanKind.Code)
+                if (!node.IsBlock && span != null && (span.Kind == SpanKind.Code || span.Kind == SpanKind.MetaCode))
                 {
                     node = MinifyCodeSpan(span);
                     builder.Children[i] = node;
@@ -125,18 +126,58 @@ namespace Meleze.Web.Razor
 
         private Span MinifyCodeSpan(Span span)
         {
-            var clearableSymbols = span.Symbols
-                .OfType<CSharpSymbol>()
-                .Where(symbol =>
-                {
-                    var isEmptyWhiteSpace = symbol.Type == CSharpSymbolType.WhiteSpace && symbol.Content.Length > 1;
-                    return symbol.Type == CSharpSymbolType.NewLine || isEmptyWhiteSpace;
-                });
+            var trimmedSymbols = new List<ISymbol>();
+            var previousIsWhiteSpaceOrNewLine = true;
+            for (var i = 0; i < span.Symbols.Count(); i++)
+            {
+                var symbol = span.Symbols.ElementAt(i);
+                var _symbol = symbol as CSharpSymbol;
 
-            var filteredSymbols = span.Symbols.Except<ISymbol>(clearableSymbols);
+                if(CanHandleSymbol(_symbol))
+                {
+                    trimmedSymbols.Add(symbol);
+                    previousIsWhiteSpaceOrNewLine = false;
+                    continue;
+                }                
+
+                var thisIsWhiteSpaceOrNewLine = _symbol.Type == CSharpSymbolType.NewLine || _symbol.Type == CSharpSymbolType.WhiteSpace;
+                var canSkipSymbol = (previousIsWhiteSpaceOrNewLine && thisIsWhiteSpaceOrNewLine) || _symbol.Type == CSharpSymbolType.Comment;
+                if (canSkipSymbol)
+                    continue;
+
+                previousIsWhiteSpaceOrNewLine = thisIsWhiteSpaceOrNewLine;
+
+                if (_symbol.Type == CSharpSymbolType.NewLine)
+                {
+                    var whiteSpaceSymbol = new CSharpSymbol(_symbol.Start, " ", CSharpSymbolType.WhiteSpace);
+                    trimmedSymbols.Add(whiteSpaceSymbol);
+                    continue;
+                }
+
+                var newSymbol = MinifySymbol(_symbol);
+                trimmedSymbols.Add(newSymbol);
+            }
+
+            return ReplaceSpanSymbols(span, trimmedSymbols);
+        }
+
+        private bool CanHandleSymbol(CSharpSymbol symbol)
+        {
+            var minifySymbols = new[] { CSharpSymbolType.WhiteSpace, CSharpSymbolType.NewLine, CSharpSymbolType.Unknown, CSharpSymbolType.Comment };
+            return symbol == null || (symbol != null && !minifySymbols.Contains(symbol.Type));
+        }
+
+        private CSharpSymbol MinifySymbol(CSharpSymbol _symbol)
+        {
+            var content = Regex.Replace(_symbol.Content, @"(\s)\s+", "$1");
+            return new CSharpSymbol(_symbol.Start, content, _symbol.Type);
+        }
+
+        private Span ReplaceSpanSymbols(Span span, IEnumerable<ISymbol> symbols)
+        {
             var builder = new SpanBuilder(span);
             builder.ClearSymbols();
-            foreach (var symbol in filteredSymbols)            
+            foreach (var symbol in symbols)
                 builder.Accept(symbol);
 
             return new Span(builder);
