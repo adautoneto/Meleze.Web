@@ -57,7 +57,7 @@ namespace Meleze.Web.Razor
                     previousTokenEndsWithBlockElement = false;
 
                     var section = node as Block;
-                    if ((section != null) && (section.Type == BlockType.Section || section.Type == BlockType.Statement || section.Type == BlockType.Expression))
+                    if ((section != null) && (section.Type == BlockType.Section || section.Type == BlockType.Statement || section.Type == BlockType.Expression || section.Type == BlockType.Helper))
                     {
                         // Sections are special as they force us to recurse the minification
                         block.Children[i] = MinifySectionBlock(section);
@@ -108,16 +108,22 @@ namespace Meleze.Web.Razor
                     continue;
                 }
 
-                var markup = node as Block;
-                if ((markup == null) || (markup.Type != BlockType.Markup))
+                var blockNode = node as Block;
+                var isStatementBlock = blockNode != null && blockNode.Type == BlockType.Statement;
+                if (isStatementBlock)
                 {
+                    builder.Children[i] = MinifySectionBlock(blockNode);
                     continue;
                 }
 
-                var markupbuilder = new BlockBuilder(markup);
+                var isNotMarkup = blockNode == null || blockNode.Type != BlockType.Markup;
+                if (isNotMarkup)
+                    continue;
+
+                var markupbuilder = new BlockBuilder(blockNode);
                 MinifyMarkup(markupbuilder);
-                markup = new Block(markupbuilder);
-                builder.Children[i] = markup;
+                blockNode = new Block(markupbuilder);
+                builder.Children[i] = blockNode;
             }
 
             block = new Block(builder);
